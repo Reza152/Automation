@@ -1,0 +1,15 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+
+# Sensitive variables
+*.tfvars
+*.tfvars.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
