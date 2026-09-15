@@ -1,3 +1,7 @@
+# ==========================================================
+# VPC
+# ==========================================================
+
 resource "aws_vpc" "main" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_support   = true
@@ -8,16 +12,24 @@ resource "aws_vpc" "main" {
   }
 }
 
+# ==========================================================
+# PUBLIC SUBNET
+# ==========================================================
+
 resource "aws_subnet" "main" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = "10.0.1.0/24"
-  availability_zone       = "ap-southeast-3a"
+  availability_zone       = "${var.aws_region}a"
   map_public_ip_on_launch = true
 
   tags = {
     Name = "terraform-public-subnet"
   }
 }
+
+# ==========================================================
+# INTERNET GATEWAY
+# ==========================================================
 
 resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
@@ -26,6 +38,10 @@ resource "aws_internet_gateway" "main" {
     Name = "terraform-igw"
   }
 }
+
+# ==========================================================
+# PUBLIC ROUTE TABLE
+# ==========================================================
 
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
@@ -44,6 +60,10 @@ resource "aws_route_table_association" "public" {
   subnet_id      = aws_subnet.main.id
   route_table_id = aws_route_table.public.id
 }
+
+# ==========================================================
+# SECURITY GROUP
+# ==========================================================
 
 resource "aws_security_group" "server" {
   name        = "terraform-server-sg"
@@ -75,6 +95,7 @@ resource "aws_security_group" "server" {
   }
 
   egress {
+    description = "All outbound"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -86,6 +107,10 @@ resource "aws_security_group" "server" {
   }
 }
 
+# ==========================================================
+# SSH KEY PAIR
+# ==========================================================
+
 resource "aws_key_pair" "terraform" {
   key_name   = "terraform-reza"
   public_key = file("~/.ssh/terraform-reza.pub")
@@ -94,6 +119,10 @@ resource "aws_key_pair" "terraform" {
     Name = "terraform-reza-key"
   }
 }
+
+# ==========================================================
+# UBUNTU 24.04 AMI
+# ==========================================================
 
 data "aws_ami" "ubuntu" {
   most_recent = true
@@ -105,15 +134,19 @@ data "aws_ami" "ubuntu" {
   }
 
   filter {
-    name   = "architecture"
-    values = ["x86_64"]
-  }
-
-  filter {
     name   = "virtualization-type"
     values = ["hvm"]
   }
+
+  filter {
+    name   = "root-device-type"
+    values = ["ebs"]
+  }
 }
+
+# ==========================================================
+# DEBIAN 11 AMI
+# ==========================================================
 
 data "aws_ami" "debian" {
   most_recent = true
@@ -125,27 +158,29 @@ data "aws_ami" "debian" {
   }
 
   filter {
-    name   = "architecture"
-    values = ["x86_64"]
-  }
-
-  filter {
     name   = "virtualization-type"
     values = ["hvm"]
   }
+
+  filter {
+    name   = "root-device-type"
+    values = ["ebs"]
+  }
 }
 
-# =========================================
-# EC2 - Ubuntu 24.04
-# =========================================
+# ==========================================================
+# TERRAFORM SERVER 1
+# UBUNTU 24.04
+# ==========================================================
 
 resource "aws_instance" "ubuntu" {
-  ami                         = data.aws_ami.ubuntu.id
-  instance_type               = "t3.micro"
+  ami           = data.aws_ami.ubuntu.id
+  instance_type = "t3.micro"
+
   subnet_id                   = aws_subnet.main.id
   vpc_security_group_ids      = [aws_security_group.server.id]
   key_name                    = aws_key_pair.terraform.key_name
-  associate_public_ip_address = false
+  associate_public_ip_address = true
 
   credit_specification {
     cpu_credits = "standard"
@@ -157,17 +192,19 @@ resource "aws_instance" "ubuntu" {
   }
 }
 
-# =========================================
-# EC2 - Debian 11
-# =========================================
+# ==========================================================
+# TERRAFORM SERVER 2
+# DEBIAN 11
+# ==========================================================
 
 resource "aws_instance" "debian" {
-  ami                         = data.aws_ami.debian.id
-  instance_type               = "t3.micro"
+  ami           = data.aws_ami.debian.id
+  instance_type = "t3.micro"
+
   subnet_id                   = aws_subnet.main.id
   vpc_security_group_ids      = [aws_security_group.server.id]
   key_name                    = aws_key_pair.terraform.key_name
-  associate_public_ip_address = false
+  associate_public_ip_address = true
 
   credit_specification {
     cpu_credits = "standard"
@@ -179,9 +216,9 @@ resource "aws_instance" "debian" {
   }
 }
 
-# =========================================
-# Static Public IP - Ubuntu
-# =========================================
+# ==========================================================
+# ELASTIC IP - TERRAFORM UBUNTU
+# ==========================================================
 
 resource "aws_eip" "ubuntu" {
   domain = "vpc"
@@ -196,9 +233,9 @@ resource "aws_eip_association" "ubuntu" {
   allocation_id = aws_eip.ubuntu.id
 }
 
-# =========================================
-# Static Public IP - Debian
-# =========================================
+# ==========================================================
+# ELASTIC IP - TERRAFORM DEBIAN
+# ==========================================================
 
 resource "aws_eip" "debian" {
   domain = "vpc"
@@ -213,12 +250,12 @@ resource "aws_eip_association" "debian" {
   allocation_id = aws_eip.debian.id
 }
 
-# =========================================
-# EBS - Ubuntu
-# =========================================
+# ==========================================================
+# EBS - TERRAFORM UBUNTU
+# ==========================================================
 
 resource "aws_ebs_volume" "ubuntu" {
-  availability_zone = aws_subnet.main.availability_zone
+  availability_zone = "${var.aws_region}a"
   size              = 8
   type              = "gp3"
   encrypted         = true
@@ -234,12 +271,12 @@ resource "aws_volume_attachment" "ubuntu" {
   instance_id = aws_instance.ubuntu.id
 }
 
-# =========================================
-# EBS - Debian
-# =========================================
+# ==========================================================
+# EBS - TERRAFORM DEBIAN
+# ==========================================================
 
 resource "aws_ebs_volume" "debian" {
-  availability_zone = aws_subnet.main.availability_zone
+  availability_zone = "${var.aws_region}a"
   size              = 8
   type              = "gp3"
   encrypted         = true
@@ -255,16 +292,110 @@ resource "aws_volume_attachment" "debian" {
   instance_id = aws_instance.debian.id
 }
 
-# =========================================
-# Outputs
-# =========================================
+# ==========================================================
+# ANSIBLE SERVER 1
+# UBUNTU 24.04
+# ==========================================================
+
+resource "aws_instance" "ansible_ubuntu_1" {
+  ami           = data.aws_ami.ubuntu.id
+  instance_type = "t3.micro"
+
+  subnet_id                   = aws_subnet.main.id
+  vpc_security_group_ids      = [aws_security_group.server.id]
+  key_name                    = aws_key_pair.terraform.key_name
+  associate_public_ip_address = true
+
+  credit_specification {
+    cpu_credits = "standard"
+  }
+
+  tags = {
+    Name = "ansible-ubuntu-1"
+    OS   = "Ubuntu 24.04"
+    Role = "Ansible Target"
+  }
+}
+
+# ==========================================================
+# ANSIBLE SERVER 2
+# UBUNTU 24.04
+# ==========================================================
+
+resource "aws_instance" "ansible_ubuntu_2" {
+  ami           = data.aws_ami.ubuntu.id
+  instance_type = "t3.micro"
+
+  subnet_id                   = aws_subnet.main.id
+  vpc_security_group_ids      = [aws_security_group.server.id]
+  key_name                    = aws_key_pair.terraform.key_name
+  associate_public_ip_address = true
+
+  credit_specification {
+    cpu_credits = "standard"
+  }
+
+  tags = {
+    Name = "ansible-ubuntu-2"
+    OS   = "Ubuntu 24.04"
+    Role = "Ansible Target"
+  }
+}
+
+# ==========================================================
+# ELASTIC IP - ANSIBLE UBUNTU 1
+# ==========================================================
+
+resource "aws_eip" "ansible_ubuntu_1" {
+  domain = "vpc"
+
+  tags = {
+    Name = "ansible-ubuntu-1-eip"
+  }
+}
+
+resource "aws_eip_association" "ansible_ubuntu_1" {
+  instance_id   = aws_instance.ansible_ubuntu_1.id
+  allocation_id = aws_eip.ansible_ubuntu_1.id
+}
+
+# ==========================================================
+# ELASTIC IP - ANSIBLE UBUNTU 2
+# ==========================================================
+
+resource "aws_eip" "ansible_ubuntu_2" {
+  domain = "vpc"
+
+  tags = {
+    Name = "ansible-ubuntu-2-eip"
+  }
+}
+
+resource "aws_eip_association" "ansible_ubuntu_2" {
+  instance_id   = aws_instance.ansible_ubuntu_2.id
+  allocation_id = aws_eip.ansible_ubuntu_2.id
+}
+
+# ==========================================================
+# OUTPUT
+# ==========================================================
 
 output "ubuntu_public_ip" {
-  description = "Static public IP Ubuntu"
+  description = "Public IP Terraform Ubuntu"
   value       = aws_eip.ubuntu.public_ip
 }
 
 output "debian_public_ip" {
-  description = "Static public IP Debian"
+  description = "Public IP Terraform Debian"
   value       = aws_eip.debian.public_ip
+}
+
+output "ansible_ubuntu_1_public_ip" {
+  description = "Public IP Ansible Ubuntu 1"
+  value       = aws_eip.ansible_ubuntu_1.public_ip
+}
+
+output "ansible_ubuntu_2_public_ip" {
+  description = "Public IP Ansible Ubuntu 2"
+  value       = aws_eip.ansible_ubuntu_2.public_ip
 }
