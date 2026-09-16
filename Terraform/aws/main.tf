@@ -169,17 +169,24 @@ data "aws_ami" "debian" {
 }
 
 # ==========================================================
-# TERRAFORM SERVER 1
-# UBUNTU 24.04
+# TERRAFORM SERVERS
 # ==========================================================
 
-resource "aws_instance" "ubuntu" {
-  ami           = data.aws_ami.ubuntu.id
-  instance_type = "t3.micro"
+resource "aws_instance" "terraform_servers" {
+  for_each = {
+    for name, server in var.servers :
+    name => server
+    if server.group == "terraform"
+  }
 
-  subnet_id                   = aws_subnet.main.id
-  vpc_security_group_ids      = [aws_security_group.server.id]
-  key_name                    = aws_key_pair.terraform.key_name
+  ami = each.value.os == "ubuntu" ? data.aws_ami.ubuntu.id : data.aws_ami.debian.id
+
+  instance_type = each.value.instance_type
+
+  subnet_id              = aws_subnet.main.id
+  vpc_security_group_ids = [aws_security_group.server.id]
+  key_name               = aws_key_pair.terraform.key_name
+
   associate_public_ip_address = true
 
   credit_specification {
@@ -187,23 +194,30 @@ resource "aws_instance" "ubuntu" {
   }
 
   tags = {
-    Name = "terraform-ubuntu-24"
-    OS   = "Ubuntu 24.04"
+    Name = each.value.os == "ubuntu" ? "terraform-ubuntu-24" : "terraform-debian-11"
+    OS   = each.value.os == "ubuntu" ? "Ubuntu 24.04" : "Debian 11"
   }
 }
 
 # ==========================================================
-# TERRAFORM SERVER 2
-# DEBIAN 11
+# ANSIBLE SERVERS
 # ==========================================================
 
-resource "aws_instance" "debian" {
-  ami           = data.aws_ami.debian.id
-  instance_type = "t3.micro"
+resource "aws_instance" "ansible_servers" {
+  for_each = {
+    for name, server in var.servers :
+    name => server
+    if server.group == "ansible"
+  }
 
-  subnet_id                   = aws_subnet.main.id
-  vpc_security_group_ids      = [aws_security_group.server.id]
-  key_name                    = aws_key_pair.terraform.key_name
+  ami = data.aws_ami.ubuntu.id
+
+  instance_type = each.value.instance_type
+
+  subnet_id              = aws_subnet.main.id
+  vpc_security_group_ids = [aws_security_group.server.id]
+  key_name               = aws_key_pair.terraform.key_name
+
   associate_public_ip_address = true
 
   credit_specification {
@@ -211,169 +225,174 @@ resource "aws_instance" "debian" {
   }
 
   tags = {
-    Name = "terraform-debian-11"
-    OS   = "Debian 11"
-  }
-}
-
-# ==========================================================
-# ELASTIC IP - TERRAFORM UBUNTU
-# ==========================================================
-
-resource "aws_eip" "ubuntu" {
-  domain = "vpc"
-
-  tags = {
-    Name = "terraform-ubuntu-eip"
-  }
-}
-
-resource "aws_eip_association" "ubuntu" {
-  instance_id   = aws_instance.ubuntu.id
-  allocation_id = aws_eip.ubuntu.id
-}
-
-# ==========================================================
-# ELASTIC IP - TERRAFORM DEBIAN
-# ==========================================================
-
-resource "aws_eip" "debian" {
-  domain = "vpc"
-
-  tags = {
-    Name = "terraform-debian-eip"
-  }
-}
-
-resource "aws_eip_association" "debian" {
-  instance_id   = aws_instance.debian.id
-  allocation_id = aws_eip.debian.id
-}
-
-# ==========================================================
-# EBS - TERRAFORM UBUNTU
-# ==========================================================
-
-resource "aws_ebs_volume" "ubuntu" {
-  availability_zone = "${var.aws_region}a"
-  size              = 8
-  type              = "gp3"
-  encrypted         = true
-
-  tags = {
-    Name = "terraform-ubuntu-data"
-  }
-}
-
-resource "aws_volume_attachment" "ubuntu" {
-  device_name = "/dev/sdf"
-  volume_id   = aws_ebs_volume.ubuntu.id
-  instance_id = aws_instance.ubuntu.id
-}
-
-# ==========================================================
-# EBS - TERRAFORM DEBIAN
-# ==========================================================
-
-resource "aws_ebs_volume" "debian" {
-  availability_zone = "${var.aws_region}a"
-  size              = 8
-  type              = "gp3"
-  encrypted         = true
-
-  tags = {
-    Name = "terraform-debian-data"
-  }
-}
-
-resource "aws_volume_attachment" "debian" {
-  device_name = "/dev/sdf"
-  volume_id   = aws_ebs_volume.debian.id
-  instance_id = aws_instance.debian.id
-}
-
-# ==========================================================
-# ANSIBLE SERVER 1
-# UBUNTU 24.04
-# ==========================================================
-
-resource "aws_instance" "ansible_ubuntu_1" {
-  ami           = data.aws_ami.ubuntu.id
-  instance_type = "t3.micro"
-
-  subnet_id                   = aws_subnet.main.id
-  vpc_security_group_ids      = [aws_security_group.server.id]
-  key_name                    = aws_key_pair.terraform.key_name
-  associate_public_ip_address = true
-
-  credit_specification {
-    cpu_credits = "standard"
-  }
-
-  tags = {
-    Name = "ansible-ubuntu-1"
+    Name = each.key
     OS   = "Ubuntu 24.04"
     Role = "Ansible Target"
   }
 }
 
 # ==========================================================
-# ANSIBLE SERVER 2
-# UBUNTU 24.04
+# ELASTIC IP
 # ==========================================================
 
-resource "aws_instance" "ansible_ubuntu_2" {
-  ami           = data.aws_ami.ubuntu.id
-  instance_type = "t3.micro"
+resource "aws_eip" "servers" {
+  for_each = var.servers
 
-  subnet_id                   = aws_subnet.main.id
-  vpc_security_group_ids      = [aws_security_group.server.id]
-  key_name                    = aws_key_pair.terraform.key_name
-  associate_public_ip_address = true
-
-  credit_specification {
-    cpu_credits = "standard"
-  }
-
-  tags = {
-    Name = "ansible-ubuntu-2"
-    OS   = "Ubuntu 24.04"
-    Role = "Ansible Target"
-  }
-}
-
-# ==========================================================
-# ELASTIC IP - ANSIBLE UBUNTU 1
-# ==========================================================
-
-resource "aws_eip" "ansible_ubuntu_1" {
   domain = "vpc"
 
   tags = {
-    Name = "ansible-ubuntu-1-eip"
+    Name = "${each.key}-eip"
   }
 }
 
-resource "aws_eip_association" "ansible_ubuntu_1" {
-  instance_id   = aws_instance.ansible_ubuntu_1.id
-  allocation_id = aws_eip.ansible_ubuntu_1.id
+# ==========================================================
+# ELASTIC IP ASSOCIATION
+# ==========================================================
+
+resource "aws_eip_association" "servers" {
+  for_each = var.servers
+
+  instance_id = each.value.group == "terraform" ? aws_instance.terraform_servers[each.key].id : aws_instance.ansible_servers[each.key].id
+
+  allocation_id = aws_eip.servers[each.key].id
 }
 
 # ==========================================================
-# ELASTIC IP - ANSIBLE UBUNTU 2
+# EBS VOLUMES
+# Only Terraform servers receive additional EBS
 # ==========================================================
 
-resource "aws_eip" "ansible_ubuntu_2" {
-  domain = "vpc"
+resource "aws_ebs_volume" "servers" {
+  for_each = {
+    for name, server in var.servers :
+    name => server
+    if server.group == "terraform" && try(server.disk_size, 0) > 0
+  }
+
+  availability_zone = "${var.aws_region}a"
+  size              = each.value.disk_size
+  type              = "gp3"
+  encrypted         = true
 
   tags = {
-    Name = "ansible-ubuntu-2-eip"
+    Name = "${each.key}-data"
   }
 }
 
-resource "aws_eip_association" "ansible_ubuntu_2" {
-  instance_id   = aws_instance.ansible_ubuntu_2.id
-  allocation_id = aws_eip.ansible_ubuntu_2.id
+# ==========================================================
+# EBS VOLUME ATTACHMENT
+# ==========================================================
+
+resource "aws_volume_attachment" "servers" {
+  for_each = {
+    for name, server in var.servers :
+    name => server
+    if server.group == "terraform" && try(server.disk_size, 0) > 0
+  }
+
+  device_name = "/dev/sdf"
+  volume_id   = aws_ebs_volume.servers[each.key].id
+  instance_id = aws_instance.terraform_servers[each.key].id
+}
+
+# ==========================================================
+# MOVED BLOCKS - EC2
+# ==========================================================
+
+moved {
+  from = aws_instance.ubuntu
+  to   = aws_instance.terraform_servers["terraform-ubuntu"]
+}
+
+moved {
+  from = aws_instance.debian
+  to   = aws_instance.terraform_servers["terraform-debian"]
+}
+
+moved {
+  from = aws_instance.ansible_ubuntu_1
+  to   = aws_instance.ansible_servers["ansible-ubuntu-1"]
+}
+
+moved {
+  from = aws_instance.ansible_ubuntu_2
+  to   = aws_instance.ansible_servers["ansible-ubuntu-2"]
+}
+
+# ==========================================================
+# MOVED BLOCKS - EIP
+# ==========================================================
+
+moved {
+  from = aws_eip.ubuntu
+  to   = aws_eip.servers["terraform-ubuntu"]
+}
+
+moved {
+  from = aws_eip.debian
+  to   = aws_eip.servers["terraform-debian"]
+}
+
+moved {
+  from = aws_eip.ansible_ubuntu_1
+  to   = aws_eip.servers["ansible-ubuntu-1"]
+}
+
+moved {
+  from = aws_eip.ansible_ubuntu_2
+  to   = aws_eip.servers["ansible-ubuntu-2"]
+}
+
+# ==========================================================
+# MOVED BLOCKS - EIP ASSOCIATION
+# ==========================================================
+
+moved {
+  from = aws_eip_association.ubuntu
+  to   = aws_eip_association.servers["terraform-ubuntu"]
+}
+
+moved {
+  from = aws_eip_association.debian
+  to   = aws_eip_association.servers["terraform-debian"]
+}
+
+moved {
+  from = aws_eip_association.ansible_ubuntu_1
+  to   = aws_eip_association.servers["ansible-ubuntu-1"]
+}
+
+moved {
+  from = aws_eip_association.ansible_ubuntu_2
+  to   = aws_eip_association.servers["ansible-ubuntu-2"]
+}
+
+# ==========================================================
+# MOVED BLOCKS - EBS
+# ==========================================================
+
+moved {
+  from = aws_ebs_volume.ubuntu
+  to   = aws_ebs_volume.servers["terraform-ubuntu"]
+}
+
+moved {
+  from = aws_ebs_volume.debian
+  to   = aws_ebs_volume.servers["terraform-debian"]
+}
+
+# ==========================================================
+# MOVED BLOCKS - EBS ATTACHMENT
+# ==========================================================
+
+moved {
+  from = aws_volume_attachment.ubuntu
+  to   = aws_volume_attachment.servers["terraform-ubuntu"]
+}
+
+moved {
+  from = aws_volume_attachment.debian
+  to   = aws_volume_attachment.servers["terraform-debian"]
 }
 
 # ==========================================================
@@ -382,20 +401,20 @@ resource "aws_eip_association" "ansible_ubuntu_2" {
 
 output "ubuntu_public_ip" {
   description = "Public IP Terraform Ubuntu"
-  value       = aws_eip.ubuntu.public_ip
+  value       = aws_eip.servers["terraform-ubuntu"].public_ip
 }
 
 output "debian_public_ip" {
   description = "Public IP Terraform Debian"
-  value       = aws_eip.debian.public_ip
+  value       = aws_eip.servers["terraform-debian"].public_ip
 }
 
 output "ansible_ubuntu_1_public_ip" {
   description = "Public IP Ansible Ubuntu 1"
-  value       = aws_eip.ansible_ubuntu_1.public_ip
+  value       = aws_eip.servers["ansible-ubuntu-1"].public_ip
 }
 
 output "ansible_ubuntu_2_public_ip" {
   description = "Public IP Ansible Ubuntu 2"
-  value       = aws_eip.ansible_ubuntu_2.public_ip
+  value       = aws_eip.servers["ansible-ubuntu-2"].public_ip
 }
