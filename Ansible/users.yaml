@@ -1,0 +1,66 @@
+---
+- name: Configure users and SSH
+  hosts: all
+  become: true
+
+  vars_prompt:
+    - name: new_user_password
+      prompt: "Masukkan password untuk user reza"
+      private: true
+
+  tasks:
+
+    - name: Create user reza
+      ansible.builtin.user:
+        name: reza
+        password: "{{ new_user_password | password_hash('sha512') }}"
+        groups: sudo
+        append: true
+        shell: /bin/bash
+        create_home: true
+
+    - name: Add SSH public key for reza
+      ansible.posix.authorized_key:
+        user: reza
+        state: present
+        key: "{{ lookup('file', '~/.ssh/terraform-reza.pub') }}"
+
+    - name: Enable SSH password authentication
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PasswordAuthentication'
+        line: 'PasswordAuthentication yes'
+        state: present
+      notify: Restart SSH
+
+    - name: Enable SSH keyboard interactive authentication
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?KbdInteractiveAuthentication'
+        line: 'KbdInteractiveAuthentication yes'
+        state: present
+      notify: Restart SSH
+
+    - name: Set hostname for app server
+      ansible.builtin.hostname:
+        name: app
+      when: "'app' in group_names"
+
+    - name: Set hostname for monitoring server
+      ansible.builtin.hostname:
+        name: monitoring
+      when: "'monitoring' in group_names"
+
+  handlers:
+
+    - name: Validate SSH configuration
+      ansible.builtin.command:
+        cmd: sshd -t
+      changed_when: false
+      listen: Restart SSH
+
+    - name: Restart SSH service
+      ansible.builtin.service:
+        name: ssh
+        state: restarted
+      listen: Restart SSH

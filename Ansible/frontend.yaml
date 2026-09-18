@@ -1,0 +1,43 @@
+- name: Deploy Wayshub Frontend
+  hosts: app
+  become: true
+
+  vars:
+    app_dir: /opt/Wayshub-Frontend
+    repo_url: "https://github.com/Reza152/wayshub-frontend.git"
+    container_name: wayshub-frontend
+    image_name: wayshub-frontend
+    app_port: 3000
+
+  
+  tasks:
+
+    - name: Install Git
+      ansible.builtin.apt:
+        name: git
+        state: present
+        update_cache: true
+
+    - name: Clone frontend repository
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "{{ app_dir }}"
+        version: main
+        force: true
+
+    - name: Build Docker image
+      community.docker.docker_image:
+        name: "{{ image_name }}"
+        source: build
+        build:
+          path: "{{ app_dir }}"
+        state: present
+
+    - name: Run frontend container
+      community.docker.docker_container:
+        name: "{{ container_name }}"
+        image: "{{ image_name }}"
+        state: started
+        restart_policy: unless-stopped
+        ports:
+          - "{{ app_port }}:3000"

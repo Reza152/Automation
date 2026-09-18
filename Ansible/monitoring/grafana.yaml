@@ -1,0 +1,25 @@
+---
+- name: Install Grafana
+  hosts: monitoring
+  become: true
+
+  tasks:
+
+    - name: Create Grafana directory
+      ansible.builtin.file:
+        path: /opt/grafana
+        state: directory
+        owner: "472"
+        group: "472"
+        mode: "0755"
+
+    - name: Run Grafana container
+      community.docker.docker_container:
+        name: grafana
+        image: grafana/grafana:latest
+        state: started
+        restart_policy: unless-stopped
+        ports:
+          - "3000:3000"
+        volumes:
+          - /opt/grafana:/var/lib/grafana

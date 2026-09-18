@@ -1,0 +1,75 @@
+---
+- name: Setup Nginx Reverse Proxy and Wildcard SSL
+  hosts: monitoring
+  become: true
+
+  vars:
+    wildcard_domain: "*.studentdumbways.my.id"
+    certificate_dir: /etc/letsencrypt/live/studentdumbways.my.id
+    cloudflare_credentials_dest: /root/.secrets/certbot/cloudflare.ini
+
+  tasks:
+
+    - name: Install Nginx
+      ansible.builtin.apt:
+        name: nginx
+        state: present
+        update_cache: true
+
+    - name: Install Certbot and Cloudflare DNS plugin
+      ansible.builtin.apt:
+        name:
+          - certbot
+          - python3-certbot-dns-cloudflare
+        state: present
+        update_cache: true
+
+    - name: Create Certbot credentials directory
+      ansible.builtin.file:
+        path: /root/.secrets/certbot
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Set Nginx server names hash bucket size
+      ansible.builtin.lineinfile:
+        path: /etc/nginx/nginx.conf
+        regexp: '^\s*#?\s*server_names_hash_bucket_size'
+        line: '    server_names_hash_bucket_size 128;'
+        insertafter: '^http\s*\{'
+      notify: Reload Nginx
+
+    - name: Copy Nginx reverse proxy configuration
+      ansible.builtin.copy:
+        src: reverse-proxy.conf
+        dest: /etc/nginx/conf.d/reverse-proxy.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload Nginx
+
+    - name: Check wildcard certificate
+      ansible.builtin.stat:
+        path: "{{ certificate_dir }}/fullchain.pem"
+      register: wildcard_certificate
+
+    - name: Start and enable Nginx
+      ansible.builtin.systemd:
+        name: nginx
+        state: started
+        enabled: true
+
+  handlers:
+
+    - name: Validate Nginx configuration
+      ansible.builtin.command:
+        cmd: nginx -t
+      changed_when: false
+      listen: Reload Nginx
+
+    - name: Reload Nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
+      listen: Reload Nginx

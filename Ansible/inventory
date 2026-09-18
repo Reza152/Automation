@@ -1,0 +1,9 @@
+[app]
+app-server ansible_host=108.137.111.48
+
+[monitoring]
+monitoring-server ansible_host=16.79.36.15
+
+[terraform]
+terraform-ubuntu ansible_host=15.232.170.170
+terraform-debian ansible_host=15.232.94.115
